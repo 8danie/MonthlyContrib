@@ -1,34 +1,43 @@
 // context/AuthContext.js
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../firebase'; // Assurez-vous que ce chemin est correct
+import { doc, getDoc } from 'firebase/firestore'; // Importer les fonctions Firestore
+import { auth, db } from '../firebase'; // Importer db
 
-// 1. Créer le contexte
 export const AuthContext = createContext();
 
-// 2. Créer le "Provider" (fournisseur)
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(null); // contiendra les données de l'utilisateur de Firestore
   const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
-    // onAuthStateChanged retourne une fonction "unsubscribe"
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        // L'utilisateur est connecté. Allons chercher ses infos dans Firestore.
+        const userDocRef = doc(db, 'users', firebaseUser.uid); // Chemin vers son document
+        const userDoc = await getDoc(userDocRef);
+        
+        if (userDoc.exists()) {
+          // On combine l'ID de l'auth avec les données de Firestore
+          setUser({ uid: firebaseUser.uid, ...userDoc.data() });
+        } else {
+          // Cas où l'utilisateur existe dans l'auth mais pas dans la db (rare)
+          setUser({ uid: firebaseUser.uid, email: firebaseUser.email });
+        }
+      } else {
+        // L'utilisateur est déconnecté
+        setUser(null);
+      }
+      
       if (initializing) {
         setInitializing(false);
       }
     });
 
-    // Nettoyer l'écouteur lors du démontage du composant
     return unsubscribe;
   }, [initializing]);
 
-  // La valeur fournie par le contexte
-  const value = {
-    user,
-    initializing,
-  };
+  const value = { user, initializing };
 
   return (
     <AuthContext.Provider value={value}>
@@ -37,7 +46,6 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-// 3. (Optionnel mais recommandé) Créer un hook personnalisé pour utiliser le contexte
 export const useAuth = () => {
   return useContext(AuthContext);
 };
